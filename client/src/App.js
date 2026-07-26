@@ -4,10 +4,12 @@ import { io } from 'socket.io-client';
 import { setConnectionStatus, telemetryReceived } from './store/telemetrySlice';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
-const socket = io('http://localhost:5000', {
+const BACKEND_URL = process.env.REACT_APP_API_URL || 'https://telemetry-sync-framework.onrender.com';
+
+const socket = io(BACKEND_URL, {
   autoConnect: false,
   auth: {
-    token: 'Bearer strict_equality_super_secret_key_2026'
+    token: `Bearer ${process.env.REACT_APP_JWT_SECRET || 'strict_equality_super_secret_key_2026'}`
   }
 });
 
@@ -18,11 +20,19 @@ function App() {
 
   useEffect(() => {
     socket.connect();
-    socket.on('connect', () => dispatch(setConnectionStatus('CONNECTED')));
-    socket.on('disconnect', () => dispatch(setConnectionStatus('DISCONNECTED')));
-    socket.on('telemetry_stream', (data) => dispatch(telemetryReceived(data)));
+
+    const onConnect = () => dispatch(setConnectionStatus('CONNECTED'));
+    const onDisconnect = () => dispatch(setConnectionStatus('DISCONNECTED'));
+    const onTelemetry = (data) => dispatch(telemetryReceived(data));
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('telemetry_stream', onTelemetry);
 
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('telemetry_stream', onTelemetry);
       socket.disconnect();
     };
   }, [dispatch]);
