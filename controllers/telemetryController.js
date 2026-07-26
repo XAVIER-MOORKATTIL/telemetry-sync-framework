@@ -1,42 +1,48 @@
-const { Telemetry, LatencyTelemetry, ResourceTelemetry } = require('../models/Telemetry');
+const Telemetry = require('../models/Telemetry'); // Adjust model path if different
 
-exports.ingestTelemetry = async (req, res) => {
+const ingestTelemetry = async (req, res) => {
   try {
-    const { eventType, sourceNode, sequenceId, data } = req.body;
+    const { sourceNode, sequenceId, responseTimeMs } = req.body;
 
-    let payload;
-    if (eventType === 'LATENCY') {
-      payload = new LatencyTelemetry({
-        sourceNode,
-        sequenceId,
-        responseTimeMs: data.responseTimeMs,
-        endpoint: data.endpoint,
-      });
-    } else {
-      payload = new ResourceTelemetry({
-        sourceNode,
-        sequenceId,
-        heapUsedMB: data.heapUsedMB,
-        cpuUsagePct: data.cpuUsagePct,
-      });
+    if (!sourceNode || sequenceId === undefined || responseTimeMs === undefined) {
+      return res.status(400).json({ error: 'Missing required telemetry parameters.' });
     }
 
-    const savedRecord = await payload.save();
+    const payload = {
+      sourceNode,
+      sequenceId,
+      responseTimeMs,
+      createdAt: new Date()
+    };
 
-    // Broadcast live event over WebSocket
+    // 1. Instantly broadcast to all connected WebSocket clients (Vercel Dashboard)
     const io = req.app.get('socketio');
     if (io) {
-      io.emit('telemetry_stream', savedRecord);
+      io.emit('telemetry_stream', payload);
+    }
+
+    // 2. Persist to MongoDB Atlas asynchronously
+    try {
+      await Telemetry.create(payload);
+    } catch (dbErr) {
+      console.error('[DB PERSIST WARN]', dbErr.message);
     }
 
     return res.status(201).json({
-      success: true,
-      data: savedRecord,
+      status: 'ACCEPTED',
+      message: 'Telemetry ingested successfully',
+      data: payload
     });
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({ error: 'DUPLICATE_SEQUENCE_ID_DETECTED' });
-    }
-    return res.status(500).json({ error: error.message });
+    console.error('[INGEST ERROR]', error);
+    return res.status(500).json({
+      error: 'Internal Server Error during telemetry ingestion',
+      details: error.message
+    });
   }
+};
+
+module.exports = {
+  ingestTelemetry,
+  ingestTelemetryStrict: ingestTelemetry
 };
