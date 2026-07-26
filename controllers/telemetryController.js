@@ -1,4 +1,4 @@
-const Telemetry = require('../models/Telemetry'); // Adjust model path if different
+const { Telemetry } = require('../models/Telemetry');
 
 const ingestTelemetry = async (req, res) => {
   try {
